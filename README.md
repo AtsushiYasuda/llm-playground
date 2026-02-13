@@ -51,13 +51,27 @@ python -m llm_mcp_server
 |-----|-------------|
 | `llm://status` | Current provider, model, and parameter settings |
 
+## Context Optimization
+
+This server implements several strategies to reduce token/context consumption by MCP clients:
+
+| Strategy | Description | Config |
+|----------|-------------|--------|
+| Auto-summarization | Long LLM responses are automatically condensed via a second LLM call | `SUMMARIZE_THRESHOLD` |
+| Hard truncation | Responses exceeding the char limit are truncated at a word boundary | `MAX_RESPONSE_CHARS` |
+| TTL cache | Identical prompts return cached results without an API call | `CACHE_ENABLED`, `CACHE_TTL_SECONDS` |
+| Compact JSON | Tool results use minimal JSON serialization (no whitespace) | Always on |
+| Concise descriptions | Tool docstrings are kept short to minimize tool-definition tokens | Always on |
+| Per-call `max_length` | Callers can request shorter responses on a per-tool-call basis | Tool parameter |
+
 ## Project Structure
 
 ```
 src/llm_mcp_server/
   __main__.py    # Entry-point
   config.py      # Settings via pydantic-settings / .env
-  llm_client.py  # OpenAI / Anthropic client abstraction
+  context.py     # Token estimation, caching, truncation utilities
+  llm_client.py  # OpenAI / Anthropic client with context optimization
   server.py      # FastMCP server & resource registration
   tools.py       # Tool implementations
 ```

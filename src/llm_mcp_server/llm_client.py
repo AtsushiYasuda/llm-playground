@@ -8,19 +8,32 @@ from typing import TYPE_CHECKING
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
+from llm_mcp_server.context import ResponseCache, estimate_tokens, truncate
+
 if TYPE_CHECKING:
     from llm_mcp_server.config import Settings
 
 logger = logging.getLogger(__name__)
 
+_SUMMARIZE_SYSTEM = (
+    "Condense the following text into a concise summary. "
+    "Keep all key facts, code snippets, and actionable items. "
+    "Remove filler, repetition, and verbose explanations. "
+    "Output the summary only — no preamble."
+)
+
 
 class LLMClient:
-    """Unified async client for OpenAI / Anthropic APIs."""
+    """Unified async client for OpenAI / Anthropic APIs with context optimization."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._provider = settings.llm_provider
         self._model = settings.llm_model
+
+        self._cache: ResponseCache | None = None
+        if settings.cache_enabled:
+            self._cache = ResponseCache(ttl=settings.cache_ttl_seconds)
 
         if self._provider == "openai":
             self._openai = AsyncOpenAI(
@@ -43,6 +56,16 @@ class LLMClient:
     def model(self) -> str:
         return self._model
 
+    @property
+    def cache_info(self) -> dict:
+        if self._cache is None:
+            return {"enabled": False}
+        return {"enabled": True, "size": self._cache.size, "ttl": self._cache.ttl}
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     async def chat(
         self,
         prompt: str,
@@ -50,17 +73,59 @@ class LLMClient:
         system_prompt: str = "",
         temperature: float | None = None,
         max_tokens: int | None = None,
+        auto_summarize: bool = True,
+        max_response_chars: int | None = None,
     ) -> str:
-        """Send a prompt to the configured LLM and return the text response.
+        """Send a prompt and return an optimised response.
 
-        Raises on API errors instead of silently returning error strings.
+        Context-saving pipeline:
+        1. Check cache → return cached result if hit
+        2. Call LLM API
+        3. If response > summarize_threshold, auto-summarize via a second LLM call
+        4. Truncate to max_response_chars as a hard safety net
+        5. Store in cache
         """
+        # 1. Cache lookup
+        if self._cache is not None:
+            cached = self._cache.get(prompt, system_prompt, self._model)
+            if cached is not None:
+                return cached
+
+        # 2. Raw LLM call
         temp = temperature if temperature is not None else self._settings.temperature
         tokens = max_tokens if max_tokens is not None else self._settings.max_tokens
 
         if self._provider == "openai":
-            return await self._chat_openai(prompt, system_prompt, temp, tokens)
-        return await self._chat_anthropic(prompt, system_prompt, temp, tokens)
+            raw = await self._chat_openai(prompt, system_prompt, temp, tokens)
+        else:
+            raw = await self._chat_anthropic(prompt, system_prompt, temp, tokens)
+
+        result = raw
+        threshold = self._settings.summarize_threshold
+        cap = max_response_chars or self._settings.max_response_chars
+
+        # 3. Auto-summarize long responses
+        if auto_summarize and len(result) > threshold:
+            logger.info(
+                "Response too long (%d chars > %d threshold), auto-summarizing",
+                len(result), threshold,
+            )
+            result = await self._summarize(result)
+
+        # 4. Hard truncation
+        result = truncate(result, cap)
+
+        # 5. Cache store
+        if self._cache is not None:
+            self._cache.put(prompt, system_prompt, self._model, result)
+
+        est = estimate_tokens(result)
+        logger.info("Response: %d chars, ~%d tokens", len(result), est)
+        return result
+
+    # ------------------------------------------------------------------
+    # Provider-specific calls
+    # ------------------------------------------------------------------
 
     async def _chat_openai(
         self, prompt: str, system_prompt: str, temperature: float, max_tokens: int
@@ -92,3 +157,14 @@ class LLMClient:
 
         response = await self._anthropic.messages.create(**kwargs)
         return response.content[0].text
+
+    # ------------------------------------------------------------------
+    # Auto-summarization
+    # ------------------------------------------------------------------
+
+    async def _summarize(self, text: str) -> str:
+        """Ask the LLM to condense *text* into a shorter summary."""
+        # Use lower temperature and fewer tokens for deterministic, compact output
+        if self._provider == "openai":
+            return await self._chat_openai(text, _SUMMARIZE_SYSTEM, 0.2, 1024)
+        return await self._chat_anthropic(text, _SUMMARIZE_SYSTEM, 0.2, 1024)

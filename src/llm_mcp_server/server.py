@@ -13,6 +13,8 @@ from llm_mcp_server.tools import register_tools
 
 logger = logging.getLogger(__name__)
 
+_json = lambda obj: json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+
 
 def create_server(settings: Settings | None = None) -> FastMCP:
     """Build and return a fully configured MCP server."""
@@ -26,16 +28,15 @@ def create_server(settings: Settings | None = None) -> FastMCP:
 
     @mcp.resource("llm://status")
     def llm_status() -> str:
-        """Current LLM provider and model configuration."""
-        return json.dumps(
-            {
-                "provider": settings.llm_provider,
-                "model": settings.llm_model,
-                "max_tokens": settings.max_tokens,
-                "temperature": settings.temperature,
-            },
-            indent=2,
-        )
+        """Current LLM configuration and context optimization settings."""
+        return _json({
+            "provider": settings.llm_provider,
+            "model": settings.llm_model,
+            "max_tokens": settings.max_tokens,
+            "max_response_chars": settings.max_response_chars,
+            "summarize_threshold": settings.summarize_threshold,
+            "cache": llm.cache_info,
+        })
 
     # --- Tools ---------------------------------------------------------------
 

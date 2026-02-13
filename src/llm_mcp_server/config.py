@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     max_tokens: int = 4096
     temperature: float = 0.7
 
+    # --- Context optimization ------------------------------------------------
+    # Maximum characters in a single tool response (truncated beyond this)
+    max_response_chars: int = 3000
+    # When a response exceeds this char count, auto-summarize via LLM
+    summarize_threshold: int = 2000
+    # Enable in-memory TTL cache for identical LLM calls
+    cache_enabled: bool = True
+    # Cache TTL in seconds
+    cache_ttl_seconds: int = 300
+
 
 def load_settings() -> Settings:
     """Create a validated Settings instance."""

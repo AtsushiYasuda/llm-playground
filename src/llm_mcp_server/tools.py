@@ -12,6 +12,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Compact JSON: no extra whitespace → fewer tokens in context
+_json = lambda obj: json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+
 
 def register_tools(mcp: FastMCP, llm: LLMClient) -> None:
     """Register all tools on the given MCP server instance."""
@@ -20,18 +23,65 @@ def register_tools(mcp: FastMCP, llm: LLMClient) -> None:
     # llm_query: send an arbitrary prompt to the configured LLM
     # ------------------------------------------------------------------
     @mcp.tool()
-    async def llm_query(prompt: str, system_prompt: str = "") -> str:
+    async def llm_query(
+        prompt: str,
+        system_prompt: str = "",
+        max_length: int = 0,
+    ) -> str:
         """Send a prompt to the configured LLM and return its response.
 
         Args:
             prompt: The user prompt to send.
             system_prompt: Optional system prompt for context / instructions.
+            max_length: Max response chars (0 = use server default).
         """
         logger.info("llm_query called (model=%s)", llm.model)
-        return await llm.chat(prompt, system_prompt=system_prompt)
+        kwargs: dict = {"system_prompt": system_prompt}
+        if max_length > 0:
+            kwargs["max_response_chars"] = max_length
+        return await llm.chat(prompt, **kwargs)
 
     # ------------------------------------------------------------------
-    # calculator: basic arithmetic
+    # code_review: LLM-powered code review
+    # ------------------------------------------------------------------
+    @mcp.tool()
+    async def code_review(
+        code: str,
+        language: str = "",
+        focus: str = "",
+        max_length: int = 0,
+    ) -> str:
+        """Review code using the configured LLM and return concise feedback.
+
+        Args:
+            code: Source code to review.
+            language: Programming language (e.g. "python"). Auto-detected if omitted.
+            focus: Review focus (e.g. "security", "performance", "readability").
+            max_length: Max response chars (0 = use server default).
+        """
+        logger.info("code_review called (model=%s, lang=%s)", llm.model, language or "auto")
+
+        parts = []
+        if language:
+            parts.append(f"Language: {language}")
+        if focus:
+            parts.append(f"Focus: {focus}")
+        parts.append(f"Review this code:\n```\n{code}\n```")
+
+        system = (
+            "You are an expert code reviewer. "
+            "Reply with short, actionable bullet points under: "
+            "Issues, Suggestions, Good Points. "
+            "Omit empty sections. Be concise."
+        )
+
+        kwargs: dict = {"system_prompt": system}
+        if max_length > 0:
+            kwargs["max_response_chars"] = max_length
+        return await llm.chat("\n".join(parts), **kwargs)
+
+    # ------------------------------------------------------------------
+    # calculator: basic arithmetic (compact output)
     # ------------------------------------------------------------------
     @mcp.tool()
     async def calculator(a: float, b: float, operation: str) -> str:
@@ -52,51 +102,14 @@ def register_tools(mcp: FastMCP, llm: LLMClient) -> None:
             raise ValueError(f"Unknown operation: {operation!r}. Use add/sub/mul/div.")
         if operation == "div" and b == 0:
             raise ValueError("Division by zero.")
-        result = ops[operation]()
-        return json.dumps({"result": result, "expression": f"{a} {operation} {b}"})
+        return _json({"result": ops[operation]()})
 
     # ------------------------------------------------------------------
-    # code_review: LLM-powered code review
-    # ------------------------------------------------------------------
-    @mcp.tool()
-    async def code_review(
-        code: str,
-        language: str = "",
-        focus: str = "",
-    ) -> str:
-        """Review code using the configured LLM and return feedback.
-
-        Args:
-            code: Source code to review.
-            language: Programming language (e.g. "python", "typescript"). Auto-detected if omitted.
-            focus: Optional review focus area (e.g. "security", "performance", "readability").
-        """
-        logger.info("code_review called (model=%s, language=%s)", llm.model, language or "auto")
-
-        lang_hint = f"Language: {language}\n" if language else ""
-        focus_hint = f"Focus especially on: {focus}\n" if focus else ""
-
-        system = (
-            "You are an expert code reviewer. "
-            "Provide clear, actionable feedback organized into sections: "
-            "Issues (bugs/errors), Suggestions (improvements), and Good Points (what's done well). "
-            "Be concise. Use the same language as the code comments or default to the user's language."
-        )
-        prompt = f"""{lang_hint}{focus_hint}
-Review the following code:
-
-```
-{code}
-```"""
-
-        return await llm.chat(prompt, system_prompt=system)
-
-    # ------------------------------------------------------------------
-    # echo: simple echo (useful for connectivity testing)
+    # echo: connectivity test (minimal output)
     # ------------------------------------------------------------------
     @mcp.tool()
     async def echo(message: str) -> str:
-        """Return the provided message as-is (useful for testing connectivity).
+        """Echo a message back (connectivity test).
 
         Args:
             message: Text to echo back.
