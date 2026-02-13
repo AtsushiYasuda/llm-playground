@@ -41,6 +41,7 @@ python -m llm_mcp_server
 | Tool | Description |
 |------|-------------|
 | `llm_query` | Send a prompt to the configured LLM and return its response |
+| `code_review` | LLM-powered code review with optional language and focus area |
 | `calculator` | Basic arithmetic (add / sub / mul / div) |
 | `echo` | Echo a message back (connectivity test) |
 

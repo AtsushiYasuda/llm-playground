@@ -56,6 +56,42 @@ def register_tools(mcp: FastMCP, llm: LLMClient) -> None:
         return json.dumps({"result": result, "expression": f"{a} {operation} {b}"})
 
     # ------------------------------------------------------------------
+    # code_review: LLM-powered code review
+    # ------------------------------------------------------------------
+    @mcp.tool()
+    async def code_review(
+        code: str,
+        language: str = "",
+        focus: str = "",
+    ) -> str:
+        """Review code using the configured LLM and return feedback.
+
+        Args:
+            code: Source code to review.
+            language: Programming language (e.g. "python", "typescript"). Auto-detected if omitted.
+            focus: Optional review focus area (e.g. "security", "performance", "readability").
+        """
+        logger.info("code_review called (model=%s, language=%s)", llm.model, language or "auto")
+
+        lang_hint = f"Language: {language}\n" if language else ""
+        focus_hint = f"Focus especially on: {focus}\n" if focus else ""
+
+        system = (
+            "You are an expert code reviewer. "
+            "Provide clear, actionable feedback organized into sections: "
+            "Issues (bugs/errors), Suggestions (improvements), and Good Points (what's done well). "
+            "Be concise. Use the same language as the code comments or default to the user's language."
+        )
+        prompt = f"""{lang_hint}{focus_hint}
+Review the following code:
+
+```
+{code}
+```"""
+
+        return await llm.chat(prompt, system_prompt=system)
+
+    # ------------------------------------------------------------------
     # echo: simple echo (useful for connectivity testing)
     # ------------------------------------------------------------------
     @mcp.tool()
