@@ -40,6 +40,12 @@ class LLMClient:
                 api_key=settings.openai_api_key,
                 timeout=settings.timeout_seconds,
             )
+        elif self._provider == "openrouter":
+            self._openai = AsyncOpenAI(
+                api_key=settings.openrouter_api_key,
+                base_url="https://openrouter.ai/api/v1",
+                timeout=settings.timeout_seconds,
+            )
         elif self._provider == "anthropic":
             self._anthropic = AsyncAnthropic(
                 api_key=settings.anthropic_api_key,
@@ -95,7 +101,7 @@ class LLMClient:
         temp = temperature if temperature is not None else self._settings.temperature
         tokens = max_tokens if max_tokens is not None else self._settings.max_tokens
 
-        if self._provider == "openai":
+        if self._provider in ("openai", "openrouter"):
             raw = await self._chat_openai(prompt, system_prompt, temp, tokens)
         else:
             raw = await self._chat_anthropic(prompt, system_prompt, temp, tokens)
@@ -165,6 +171,6 @@ class LLMClient:
     async def _summarize(self, text: str) -> str:
         """Ask the LLM to condense *text* into a shorter summary."""
         # Use lower temperature and fewer tokens for deterministic, compact output
-        if self._provider == "openai":
+        if self._provider in ("openai", "openrouter"):
             return await self._chat_openai(text, _SUMMARIZE_SYSTEM, 0.2, 1024)
         return await self._chat_anthropic(text, _SUMMARIZE_SYSTEM, 0.2, 1024)

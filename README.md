@@ -12,7 +12,9 @@ pip install -e .
 cp .env.example .env
 ```
 
-Set `LLM_PROVIDER` to `openai` or `anthropic` and fill in the corresponding API key.
+Set `LLM_PROVIDER` to `openai`, `anthropic`, or `openrouter` and fill in the corresponding API key.
+
+For **OpenRouter**, use the `provider/model` format for `LLM_MODEL` (e.g. `anthropic/claude-sonnet-4-20250514`).
 
 ## Usage
 

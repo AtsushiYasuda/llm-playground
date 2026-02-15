@@ -10,15 +10,17 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
-    # LLM provider: "openai" or "anthropic"
+    # LLM provider: "openai", "anthropic", or "openrouter"
     llm_provider: str = "openai"
 
-    # Model identifier (e.g. "gpt-4o", "claude-sonnet-4-20250514")
+    # Model identifier (e.g. "gpt-4o", "claude-sonnet-4-20250514",
+    # "anthropic/claude-sonnet-4-20250514" for OpenRouter)
     llm_model: str = "gpt-4o"
 
-    # API keys — at least one must be set depending on the provider
+    # API keys — set the one matching your provider
     openai_api_key: str = ""
     anthropic_api_key: str = ""
+    openrouter_api_key: str = ""
 
     # Request parameters
     timeout_seconds: int = 60
